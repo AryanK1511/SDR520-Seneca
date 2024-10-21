@@ -9,6 +9,7 @@
 ## Lidar Sensor
 
 - **Overview**: Lidar (Light Detection and Ranging) is a remote sensing technology similar to sonar (uses sound waves) and radar (uses radio waves). It uses **time of flight** measurements to determine distances by sending out laser pulses and measuring the time it takes for them to return after reflecting off an object.
+
 - **Types**:
 
   - **Airborne Lidar**: Typically used in aviation to map large areas like topography and forests.
