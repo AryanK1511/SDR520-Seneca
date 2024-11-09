@@ -2,27 +2,31 @@
 
 // ========== CALIBRATIONS ==========
 
-float KSonarSensorThreshold = 35;
+float KSonarSensorThreshold = 50;
 float KStandardSpeed = 150;
-float KWaitTimeMS = 1000;
+float KTurnSpeedDiff = 50;
+float KBlackLineColorThresholdValue = 800;
+
+// ========== GLOBAL VARIABLES ==========
+
+bool isPositioned = false;
 
 // ========== CONSTANTS ==========
 
-const float angleDegrees = 90;
+float CTurnAngle = 90;
+float x = 10;
 
 // ========== UTILITY FUNCTIONS ==========
 
 void resetEncoders();
 void stopMotors();
+void stopMotorsSmoothly();
 void startMotors(float leftMotorSpeed, float rightMotorSpeed);
 bool wallDetected();
-void moveForward();
-void returnToCenter(bool fromRight);
-void turnRight(float angleDegrees);
 void turnLeft(float angleDegrees);
-float checkSpaceOnRight(float angleDegrees);
-float checkSpaceOnLeft(float angleDegrees);
-void positionByDirection(float angleDegrees);
+void leaveStartBox();
+void stayOnLine();
+void findLineandPosition();
 bool isCollision();
 
 // Function to reset the encoder values
@@ -37,6 +41,20 @@ void stopMotors() {
 	motor[leftMotor]  = 0;
 }
 
+// Function to stop all motors smoothly
+void stopMotorsSmoothly() {
+	float rightMotorSpeed = motor(rightMotor);
+	float leftMotorSpeed = motor(leftMotor);
+	while (rightMotorSpeed > 0 && leftMotorSpeed > 0) {
+		wait1Msec(20);
+			x = leftMotorSpeed;
+		leftMotorSpeed -= 1;	
+		rightMotorSpeed -= 1;	
+		motor[leftMotor] = leftMotorSpeed;
+		motor[rightMotor] = rightMotorSpeed;
+	}
+}
+
 // Function to start all motors using a predefined speed
 void startMotors(float leftMotorSpeed, float rightMotorSpeed) {
 	motor[rightMotor] = rightMotorSpeed;		  
@@ -45,43 +63,12 @@ void startMotors(float leftMotorSpeed, float rightMotorSpeed) {
 
 // Function to detect a wall using the sonar sensor
 bool wallDetected() {
-		return (SensorValue(sonarSensor) <= KSonarSensorThreshold) ? true : false;
+		return ((SensorValue(sonarSensor) > 0) && (SensorValue(sonarSensor) <= KSonarSensorThreshold)) ? true : false;
 }
 
-// Function to move forward
-void moveForward() {
-	while (!wallDetected()) {
-		startMotors(KStandardSpeed, KStandardSpeed);
-	}
-	stopMotors();
-}
-
-// Function to center the robot and bring it back to the direction where it started from
-void returnToCenter(bool fromRight) {
-	if (fromRight) {
-		while (SensorValue(rightEncoder) < 0) {
-			startMotors(-KStandardSpeed, KStandardSpeed);
-		}
-	}else {
-		while (SensorValue(leftEncoder) < 0) {
-			startMotors(KStandardSpeed, -KStandardSpeed);
-		}
-	}
-	stopMotors();
-}
-
-// Function to tuen the robot right by a certain angle
-void turnRight(float angleDegrees) {
-	while ((abs(SensorValue(leftEncoder)) / (angleDegrees * 4)) < 1) {
-		motor[rightMotor] = -KStandardSpeed;
-		motor[leftMotor] = KStandardSpeed;			
-	}
-	stopMotors();
-	wait1Msec(500);
-}
-
-// Function to tuen the robot left by a certain angle
+// Function to turn the robot left by a certain angle
 void turnLeft(float angleDegrees) {
+	resetEncoders();
 	while ((abs(SensorValue(rightEncoder)) / (angleDegrees * 4)) < 1) {
 		motor[leftMotor] = -KStandardSpeed;
 		motor[rightMotor] = KStandardSpeed;			
@@ -90,28 +77,36 @@ void turnLeft(float angleDegrees) {
 	wait1Msec(500);
 }
 
-// Function to check space on the right using sonar sensor
-float checkSpaceOnRight(float angleDegrees) {
-	turnRight(angleDegrees);
-	return SensorValue(sonarSensor);
+// Function to leave the start box so that it does not mess up with the line follower sensor
+void leaveStartBox() {
+	startMotors(KStandardSpeed, KStandardSpeed);
+	wait1Msec(1500);
 }
 
-// Function to check space on the left using sonar sensor
-float checkSpaceOnLeft(float angleDegrees) {
-	turnLeft(angleDegrees);
-	return SensorValue(sonarSensor);
-}
-
-// Function to decide the direction that the robot should head in
-void positionByDirection(float angleDegrees) {
-	float spaceOnRight = checkSpaceOnRight(angleDegrees);
-	returnToCenter(true);
-	float spaceOnLeft = checkSpaceOnLeft(angleDegrees);
+// Function that makes the robot stay on line once the line is found
+void stayOnLine() {
+	bool leftSensor = SensorValue(leftLineFollower) >= KBlackLineColorThresholdValue;
+	bool rightSensor = SensorValue(rightLineFollower) >= KBlackLineColorThresholdValue;
+	bool centerSensor = SensorValue(centerLineFollower) >= KBlackLineColorThresholdValue;
 	
-	if (spaceOnRight > spaceOnLeft){
-			returnToCenter(false);
-			turnRight(angleDegrees);
+	if (centerSensor) {
+		startMotors(KStandardSpeed, KStandardSpeed);	
+	} else if (leftSensor) {
+		startMotors(-KTurnSpeedDiff, KStandardSpeed + KTurnSpeedDiff);
+	} else if (rightSensor) {
+		startMotors(KStandardSpeed + KTurnSpeedDiff, -KTurnSpeedDiff);
 	}
+}
+
+// Function that finds the line and positions itself on the line
+void findLineandPosition() {
+		if (SensorValue(leftLineFollower) > 1200 || SensorValue(rightLineFollower) > 1200 || SensorValue(centerLineFollower) > 1200) {
+			wait1Msec(300);	
+			stopMotors();
+			wait1Msec(200);
+			turnLeft(CTurnAngle);	
+			isPositioned = true;
+		}
 }
 
 // Function to detect if there was any collision using touch sensor
@@ -121,10 +116,18 @@ bool isCollision() {
 
 // ========== MAIN PROGRAM ==========
 task main() {
+	leaveStartBox();
+	
+	while (!isPositioned) {
+		findLineandPosition();
+	}
+	
 	while (!isCollision()) {
-		moveForward();
-		wait1Msec(KWaitTimeMS);
-		resetEncoders();
-		positionByDirection(angleDegrees);
+		 stayOnLine();
+		 
+		 if (wallDetected()) {
+		 	stopMotorsSmoothly(); 
+		 	break;
+		 }
 	}
 }												       
